@@ -134,6 +134,7 @@
         <div class="sync-status" id="syncStatus">🟢 スプレッドシート同期中...</div>
     </div>
 
+    <!-- タブメニュー -->
     <div class="tabs">
         <button class="tab-btn active" onclick="switchTab('catalog')">🛒 カタログ・注文受付</button>
         <button class="tab-btn" onclick="switchTab('manage')">✏️ 在庫・物品編集 🔒</button>
@@ -285,13 +286,13 @@
 </div>
 
 <script>
-    // 新しい GAS URL を標準埋め込み
-    const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycby3uqI7v5V59xgKbTTLjciNcvPI6s0PNeqOEkEkPOSM6bunSrv_bOR6Rv_ZydH3IXw/exec";
+    // 指定された新しい GAS URL をセット
+    const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbwIHJFTbYc19Fdly7z9bmvr5s3X5H3mizoAWC342yhGePG94PFpDzFAD24lQFch5PU/exec";
     const DEFAULT_ADMIN_PASSWORD = "0924";
     const PAGE_SIZE = 50;
     
     let adminPassword = localStorage.getItem('admin_password') || DEFAULT_ADMIN_PASSWORD;
-    let gasApiUrl = DEFAULT_GAS_URL; // 常に最新URLを優先
+    let gasApiUrl = DEFAULT_GAS_URL;
     localStorage.setItem('gas_api_url', gasApiUrl);
 
     let isAuthenticated = false;
@@ -577,13 +578,22 @@
             const item = itemsData.find(i => String(getItemVal(i, [noKey, '通番'])) === String(noVal));
 
             if (qty > 0 && item) {
-                orderList.push({ item: item, qty: qty, noVal: noVal });
+                orderList.push({
+                    no: noVal,
+                    itemName: getItemVal(item, [nameKey, '品名']),
+                    mfr: getItemVal(item, [mfrKey, 'メーカー']),
+                    spec: getItemVal(item, [specKey, '規格']),
+                    qty: qty,
+                    item: item
+                });
             }
         });
 
         if (orderList.length === 0) return alert('注文する商品の数量（1以上）を入力してください。');
 
         if (!confirm(`合計 ${orderList.length} 件の注文を確定しますか？`)) return;
+
+        const orderDate = new Date().toLocaleString('ja-JP');
 
         for (const order of orderList) {
             const currentStock = parseInt(getItemVal(order.item, [stockKey, '在庫数'])) || 0;
@@ -592,13 +602,13 @@
 
             orderHistory.push({
                 id: Date.now() + Math.random(),
-                date: new Date().toLocaleString('ja-JP'),
+                date: orderDate,
                 dept: dept,
                 name: name,
-                no: order.noVal,
-                itemName: getItemVal(order.item, [nameKey, '品名']),
-                mfr: getItemVal(order.item, [mfrKey, 'メーカー']),
-                spec: getItemVal(order.item, [specKey, '規格']),
+                no: order.no,
+                itemName: order.itemName,
+                mfr: order.mfr,
+                spec: order.spec,
                 qty: order.qty
             });
 
@@ -607,11 +617,29 @@
                     method: 'POST',
                     mode: 'no-cors',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'updateStock', no: order.noVal, newStock: newStock })
+                    body: JSON.stringify({ action: 'updateStock', no: order.no, newStock: newStock })
                 });
             } catch (e) {
                 console.error(e);
             }
+        }
+
+        // メール送信リクエスト
+        try {
+            fetch(gasApiUrl, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'sendOrderEmail',
+                    date: orderDate,
+                    dept: dept,
+                    name: name,
+                    orders: orderList
+                })
+            });
+        } catch (e) {
+            console.error("メール送信リクエストエラー:", e);
         }
 
         selectedOrderQtys = {};
@@ -620,9 +648,9 @@
         renderManageTable();
         renderOrders();
         updateTabBadges();
-        updateSyncStatus('completed', '注文確定完了（更新完了）');
+        updateSyncStatus('completed', '注文確定完了（メール通知送信済み）');
 
-        alert(`【注文完了】\n合計 ${orderList.length} 件の注文を受け付けました。`);
+        alert(`【注文完了】\n合計 ${orderList.length} 件の注文を受付処理し、nagase-h@ichinomiya.hospital へメール通知しました。`);
     }
 
     function renderManageTable() {
