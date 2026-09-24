@@ -27,7 +27,6 @@
         
         .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
         
-        /* 同期ステータスバッジのスタイル */
         .sync-status { font-size: 12px; font-weight: bold; padding: 6px 12px; border-radius: 6px; display: flex; align-items: center; gap: 6px; transition: all 0.3s ease; }
         .sync-status.syncing { color: #856404; background: #fff3cd; border: 1px solid #ffeeba; }
         .sync-status.success { color: #155724; background: #d4edda; border: 1px solid #c3e6cb; }
@@ -290,7 +289,6 @@
 </div>
 
 <script>
-    // 指定された新しい GAS URL を設定
     const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbxxreKnuEtnyyOCC4Cry3Z1kYHk_c6u6fEy1rcSuoXF7dLFU5eJ6A0M6tpf286GjzA/exec";
     const DEFAULT_ADMIN_PASSWORD = "0924";
     const PAGE_SIZE = 50;
@@ -528,6 +526,7 @@
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
+    // 数量入力時に即座にメモリへ記録（入力消え防止）
     function handleQtyChange(inputEl) {
         const noVal = inputEl.getAttribute('data-no');
         const qty = parseInt(inputEl.value) || 0;
@@ -569,7 +568,7 @@
             const stockVal = stockRaw !== '' ? (parseInt(stockRaw) || 0) : 0;
             const expiryVal = getItemVal(item, [expiryKey, '使用期限', '期限']) || '-';
             
-            const currentSelectedQty = selectedOrderQtys[noVal] || 0;
+            const currentSelectedQty = selectedOrderQtys[noVal] !== undefined ? selectedOrderQtys[noVal] : 0;
 
             const searchQuery = encodeURIComponent(`${mfrVal} ${nameVal}`);
             const googleUrl = `https://www.google.com/search?q=${searchQuery}`;
@@ -587,7 +586,7 @@
                 <td><span class="badge badge-stock">${stockVal}</span></td>
                 <td style="font-size: 12px; color: #555;">${expiryVal}</td>
                 <td>
-                    <input type="number" class="order-qty-input" data-no="${noVal}" value="${currentSelectedQty}" min="0" max="${stockVal}" onchange="handleQtyChange(this)" style="width: 55px; padding: 4px; text-align: center;">
+                    <input type="number" class="order-qty-input" data-no="${noVal}" value="${currentSelectedQty}" min="0" max="${stockVal}" oninput="handleQtyChange(this)" onchange="handleQtyChange(this)" style="width: 55px; padding: 4px; text-align: center;">
                 </td>
             `;
             fragment.appendChild(tr);
