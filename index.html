@@ -16,7 +16,7 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             margin: 0;
             padding: 12px;
-            padding-bottom: 120px;
+            padding-bottom: 120px; /* 固定バー＆ページネーション用の余白 */
             background-color: var(--bg-gray);
             color: #333;
         }
@@ -73,6 +73,7 @@
         .btn-success { background: #28a745; }
         .btn-secondary { background: #6c757d; }
 
+        /* ページネーションスタイル */
         .pagination-container {
             display: flex;
             justify-content: center;
@@ -98,6 +99,7 @@
         }
         .page-info { font-size: 13px; font-weight: bold; color: #004488; }
 
+        /* ボトム固定 注文＆キャンセルボタンバー */
         .bottom-order-bar {
             position: fixed;
             bottom: 0;
@@ -151,8 +153,9 @@
         </div>
 
         <div class="controls">
-            <input type="text" id="searchInput" placeholder="通番・品名・規格・メーカーで検索..." oninput="filterItems()">
-            <select id="mfrSelect" onchange="filterItems()">
+            <!-- ユーザーが入力・変更した時のみ true を渡して 1 ページ目にリセット -->
+            <input type="text" id="searchInput" placeholder="通番・品名・規格・メーカーで検索..." oninput="filterItems(true)">
+            <select id="mfrSelect" onchange="filterItems(true)">
                 <option value="">すべてのメーカー</option>
             </select>
             <span id="itemCount" style="font-size: 13px; color: #666; font-weight: bold;">同期中...</span>
@@ -174,6 +177,7 @@
             </table>
         </div>
 
+        <!-- カタログ用 ページネーション -->
         <div class="pagination-container">
             <button class="pagination-btn" id="prevPageBtn" onclick="changePage(-1)">◀ 前の50件</button>
             <span class="page-info" id="pageInfo">1 / 1 ページ</span>
@@ -286,15 +290,12 @@
 </div>
 
 <script>
-    // 指定された新しい GAS URL をセット
-    const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbwIHJFTbYc19Fdly7z9bmvr5s3X5H3mizoAWC342yhGePG94PFpDzFAD24lQFch5PU/exec";
+    const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbzyEkSxT0SSSo6Semn1k8oa2hk5qMBfWVDry-7o8Cq_DIZzz-r6fGjtfk8BHosOh1Q/exec";
     const DEFAULT_ADMIN_PASSWORD = "0924";
-    const PAGE_SIZE = 50;
+    const PAGE_SIZE = 50; // 1ページあたりの表示件数
     
     let adminPassword = localStorage.getItem('admin_password') || DEFAULT_ADMIN_PASSWORD;
-    let gasApiUrl = DEFAULT_GAS_URL;
-    localStorage.setItem('gas_api_url', gasApiUrl);
-
+    let gasApiUrl = localStorage.getItem('gas_api_url') || DEFAULT_GAS_URL;
     let isAuthenticated = false;
     let pendingTabId = null;
     let resetSyncTimer = null;
@@ -303,7 +304,7 @@
     let itemsData = [];
     let filteredItems = [];
     let allHeaders = [];
-    let selectedOrderQtys = {};
+    let selectedOrderQtys = {}; // ページ移動時も選択数量を保持するオブジェクト {通番: 数量}
     let orderHistory = JSON.parse(localStorage.getItem('chrome_order_history')) || [];
     let shippedOrders = JSON.parse(localStorage.getItem('chrome_shipped_orders')) || [];
 
@@ -353,7 +354,7 @@
                 itemsData = data;
                 allHeaders = Object.keys(data[0]);
                 populateMfrDropdown();
-                filterItems();
+                filterItems(false); // 自動同期時はページ位置をリセットしない
                 renderManageTable();
                 updateSyncStatus('success');
             }
@@ -454,7 +455,8 @@
         });
     }
 
-    function filterItems() {
+    // 引数 resetPage（デフォルトは false）を追加して自動同期時にページを保持する
+    function filterItems(resetPage = false) {
         const search = document.getElementById('searchInput').value.toLowerCase();
         const selectedMfr = document.getElementById('mfrSelect').value;
         const mfrKey = getMfrKey();
@@ -466,7 +468,17 @@
             return matchSearch && matchMfr;
         });
 
-        currentPage = 1;
+        // 検索・絞り込みの入力変更時（resetPage === true）のみ 1 ページ目に戻す
+        if (resetPage) {
+            currentPage = 1;
+        }
+
+        // データ件数が減った等で現在のページ数が最大ページを超えてしまった場合の安全補正
+        const totalPages = Math.ceil(filteredItems.length / PAGE_SIZE) || 1;
+        if (currentPage > totalPages) {
+            currentPage = totalPages;
+        }
+
         document.getElementById('itemCount').innerText = `全 ${filteredItems.length} 件`;
         renderCatalog();
     }
@@ -477,7 +489,7 @@
         if (currentPage < 1) currentPage = 1;
         if (currentPage > totalPages) currentPage = totalPages;
         renderCatalog();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        window.scrollTo({ top: 0, behavior: 'smooth' }); // ページ上部にスクロール
     }
 
     function handleQtyChange(inputEl) {
@@ -501,6 +513,7 @@
         const stockKey = getStockKey();
         const specKey = getSpecKey();
 
+        // ページネーションの範囲計算
         const totalPages = Math.ceil(filteredItems.length / PAGE_SIZE) || 1;
         const startIndex = (currentPage - 1) * PAGE_SIZE;
         const endIndex = Math.min(startIndex + PAGE_SIZE, filteredItems.length);
@@ -578,22 +591,13 @@
             const item = itemsData.find(i => String(getItemVal(i, [noKey, '通番'])) === String(noVal));
 
             if (qty > 0 && item) {
-                orderList.push({
-                    no: noVal,
-                    itemName: getItemVal(item, [nameKey, '品名']),
-                    mfr: getItemVal(item, [mfrKey, 'メーカー']),
-                    spec: getItemVal(item, [specKey, '規格']),
-                    qty: qty,
-                    item: item
-                });
+                orderList.push({ item: item, qty: qty, noVal: noVal });
             }
         });
 
         if (orderList.length === 0) return alert('注文する商品の数量（1以上）を入力してください。');
 
         if (!confirm(`合計 ${orderList.length} 件の注文を確定しますか？`)) return;
-
-        const orderDate = new Date().toLocaleString('ja-JP');
 
         for (const order of orderList) {
             const currentStock = parseInt(getItemVal(order.item, [stockKey, '在庫数'])) || 0;
@@ -602,13 +606,13 @@
 
             orderHistory.push({
                 id: Date.now() + Math.random(),
-                date: orderDate,
+                date: new Date().toLocaleString('ja-JP'),
                 dept: dept,
                 name: name,
-                no: order.no,
-                itemName: order.itemName,
-                mfr: order.mfr,
-                spec: order.spec,
+                no: order.noVal,
+                itemName: getItemVal(order.item, [nameKey, '品名']),
+                mfr: getItemVal(order.item, [mfrKey, 'メーカー']),
+                spec: getItemVal(order.item, [specKey, '規格']),
                 qty: order.qty
             });
 
@@ -617,40 +621,22 @@
                     method: 'POST',
                     mode: 'no-cors',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'updateStock', no: order.no, newStock: newStock })
+                    body: JSON.stringify({ action: 'updateStock', no: order.noVal, newStock: newStock })
                 });
             } catch (e) {
                 console.error(e);
             }
         }
 
-        // メール送信リクエスト
-        try {
-            fetch(gasApiUrl, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'sendOrderEmail',
-                    date: orderDate,
-                    dept: dept,
-                    name: name,
-                    orders: orderList
-                })
-            });
-        } catch (e) {
-            console.error("メール送信リクエストエラー:", e);
-        }
-
-        selectedOrderQtys = {};
+        selectedOrderQtys = {}; // 注文完了後に選択内容をリセット
         saveHistoryToStorage();
-        filterItems();
+        filterItems(false);
         renderManageTable();
         renderOrders();
         updateTabBadges();
-        updateSyncStatus('completed', '注文確定完了（メール通知送信済み）');
+        updateSyncStatus('completed', '注文確定完了（更新完了）');
 
-        alert(`【注文完了】\n合計 ${orderList.length} 件の注文を受付処理し、nagase-h@ichinomiya.hospital へメール通知しました。`);
+        alert(`【注文完了】\n合計 ${orderList.length} 件の注文を受け付けました。`);
     }
 
     function renderManageTable() {
@@ -702,7 +688,7 @@
 
         const item = itemsData.find(i => String(getItemVal(i, [noKey, '通番'])) === String(itemNo));
         if (item) item[stockKey] = newStock;
-        filterItems();
+        filterItems(false);
 
         try {
             await fetch(gasApiUrl, {
