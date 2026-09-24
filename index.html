@@ -286,8 +286,8 @@
 </div>
 
 <script>
-    // 指定された新しい GAS URL を設定
-    const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbxh5IB8CevjVBxkEktrSlXj6NDKyMXnbEb-1RX3pwZOBNp1maUFXorroZD7HHAAlYQ/exec";
+    // 指定された新しい GAS URL に更新
+    const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbys7vUuvTIzJ68HF8KeiogOIStQQ1JAV1ATVwSq8dyix5hxxB5KlNDYw8ZorCCXZ04/exec";
     const DEFAULT_ADMIN_PASSWORD = "0924";
     const PAGE_SIZE = 50;
     
@@ -454,7 +454,7 @@
     function getMfrKey() { return allHeaders.find(h => h.includes('メーカー')) || 'メーカー'; }
     function getNameKey() { return allHeaders.find(h => h.includes('品名')) || '品名'; }
     function getNoKey() { return allHeaders.find(h => h.includes('通番')) || '通番'; }
-    function getStockKey() { return allHeaders.find(h => h.includes('在庫')) || '在庫数'; }
+    function getStockKey() { return allHeaders.find(h => h.includes('在庫') || h.includes('個数')) || '個数'; }
     function getSpecKey() { return allHeaders.find(h => h.includes('規格')) || '規格'; }
 
     function populateMfrDropdown() {
@@ -534,7 +534,7 @@
             const mfrVal = getItemVal(item, [mfrKey, 'メーカー']) || '未指定';
             const nameVal = getItemVal(item, [nameKey, '品名']) || '';
             const specVal = getItemVal(item, [specKey, '規格']) || '-';
-            const stockRaw = getItemVal(item, [stockKey, '在庫数']);
+            const stockRaw = getItemVal(item, [stockKey, '個数', '在庫数']);
             const stockVal = stockRaw !== '' ? (parseInt(stockRaw) || 0) : 0;
             const currentSelectedQty = selectedOrderQtys[noVal] || 0;
 
@@ -599,7 +599,7 @@
             const item = itemsData.find(i => String(getItemVal(i, [noKey, '通番'])) === String(noVal));
 
             if (qty > 0 && item) {
-                const currentStock = parseInt(getItemVal(item, [stockKey, '在庫数'])) || 0;
+                const currentStock = parseInt(getItemVal(item, [stockKey, '個数', '在庫数'])) || 0;
                 const newStock = Math.max(0, currentStock - qty);
                 item[stockKey] = newStock;
 
