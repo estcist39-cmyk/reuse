@@ -60,7 +60,7 @@
         .badge-stock { background: #e3f9e5; color: #1f7a1f; }
         
         .table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 10px; border: 1px solid var(--border-color); border-radius: 4px; }
-        table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 500px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 600px; }
         th, td { border: 1px solid var(--border-color); padding: 8px; text-align: left; vertical-align: middle; }
         th { background: #f0f0f0; white-space: nowrap; position: sticky; top: 0; z-index: 10; }
         td input[type="text"], td input[type="number"] { width: 100%; padding: 6px; box-sizing: border-box; }
@@ -163,10 +163,11 @@
                 <thead>
                     <tr>
                         <th style="width: 70px;">通番</th>
-                        <th style="width: 150px;">メーカー</th>
+                        <th style="width: 140px;">メーカー</th>
                         <th>品名（Google検索）</th>
-                        <th style="width: 150px;">規格</th>
-                        <th style="width: 80px;">在庫</th>
+                        <th style="width: 140px;">規格</th>
+                        <th style="width: 70px;">在庫数</th>
+                        <th style="width: 100px;">使用期限</th>
                         <th style="width: 80px;">注文数</th>
                     </tr>
                 </thead>
@@ -286,7 +287,6 @@
 </div>
 
 <script>
-    // 指定された新しい GAS URL に更新
     const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbys7vUuvTIzJ68HF8KeiogOIStQQ1JAV1ATVwSq8dyix5hxxB5KlNDYw8ZorCCXZ04/exec";
     const DEFAULT_ADMIN_PASSWORD = "0924";
     const PAGE_SIZE = 50;
@@ -339,11 +339,20 @@
             const response = await fetch(gasApiUrl);
             const data = await response.json();
             
-            // 在庫データ取得
-            const items = Array.isArray(data) ? data : (data.items || []);
-            if (items.length > 0) {
-                itemsData = items;
-                allHeaders = Object.keys(items[0]);
+            // 在庫データ取得と空行フィルタリング
+            const rawItems = Array.isArray(data) ? data : (data.items || []);
+            if (rawItems.length > 0) {
+                allHeaders = Object.keys(rawItems[0]);
+                const nameKey = getNameKey();
+                const noKey = getNoKey();
+                
+                // 品名または通番が存在する実有効データのみを抽出
+                itemsData = rawItems.filter(item => {
+                    const name = getItemVal(item, [nameKey, '品名']);
+                    const no = getItemVal(item, [noKey, '通番']);
+                    return (name !== '' || no !== '');
+                });
+
                 populateMfrDropdown();
                 filterItems(false);
                 renderManageTable();
@@ -446,16 +455,25 @@
     function getItemVal(item, keys) {
         for (const k of keys) {
             const foundKey = Object.keys(item).find(key => key.trim() === k);
-            if (foundKey && item[foundKey] !== undefined) return item[foundKey];
+            if (foundKey && item[foundKey] !== undefined && item[foundKey] !== null) return item[foundKey];
         }
         return '';
     }
 
+    function formatCleanNumber(val) {
+        if (val === null || val === undefined || val === '') return '-';
+        let str = String(val).trim();
+        if (str.endsWith('.0')) str = str.slice(0, -2);
+        return str;
+    }
+
+    // ヘッダー名自動判定関数
     function getMfrKey() { return allHeaders.find(h => h.includes('メーカー')) || 'メーカー'; }
     function getNameKey() { return allHeaders.find(h => h.includes('品名')) || '品名'; }
     function getNoKey() { return allHeaders.find(h => h.includes('通番')) || '通番'; }
-    function getStockKey() { return allHeaders.find(h => h.includes('在庫') || h.includes('個数')) || '個数'; }
+    function getStockKey() { return allHeaders.find(h => h.includes('在庫') || h.includes('個数')) || '在庫数'; }
     function getSpecKey() { return allHeaders.find(h => h.includes('規格')) || '規格'; }
+    function getExpiryKey() { return allHeaders.find(h => h.includes('使用期限') || h.includes('期限')) || '使用期限'; }
 
     function populateMfrDropdown() {
         const select = document.getElementById('mfrSelect');
@@ -519,6 +537,7 @@
         const noKey = getNoKey();
         const stockKey = getStockKey();
         const specKey = getSpecKey();
+        const expiryKey = getExpiryKey();
 
         const totalPages = Math.ceil(filteredItems.length / PAGE_SIZE) || 1;
         const startIndex = (currentPage - 1) * PAGE_SIZE;
@@ -530,12 +549,15 @@
         document.getElementById('nextPageBtn').disabled = (currentPage === totalPages || totalPages === 0);
 
         pageItems.forEach((item) => {
-            const noVal = getItemVal(item, [noKey, '通番']) || '-';
+            const rawNo = getItemVal(item, [noKey, '通番']);
+            const noVal = formatCleanNumber(rawNo);
             const mfrVal = getItemVal(item, [mfrKey, 'メーカー']) || '未指定';
             const nameVal = getItemVal(item, [nameKey, '品名']) || '';
             const specVal = getItemVal(item, [specKey, '規格']) || '-';
-            const stockRaw = getItemVal(item, [stockKey, '個数', '在庫数']);
+            const stockRaw = getItemVal(item, [stockKey, '在庫数', '個数']);
             const stockVal = stockRaw !== '' ? (parseInt(stockRaw) || 0) : 0;
+            const expiryVal = getItemVal(item, [expiryKey, '使用期限', '期限']) || '-';
+            
             const currentSelectedQty = selectedOrderQtys[noVal] || 0;
 
             const searchQuery = encodeURIComponent(`${mfrVal} ${nameVal}`);
@@ -552,6 +574,7 @@
                 </td>
                 <td>${specVal}</td>
                 <td><span class="badge badge-stock">${stockVal}</span></td>
+                <td style="font-size: 12px; color: #555;">${expiryVal}</td>
                 <td>
                     <input type="number" class="order-qty-input" data-no="${noVal}" value="${currentSelectedQty}" min="0" max="${stockVal}" onchange="handleQtyChange(this)" style="width: 55px; padding: 4px; text-align: center;">
                 </td>
@@ -596,10 +619,10 @@
 
         Object.keys(selectedOrderQtys).forEach(noVal => {
             const qty = selectedOrderQtys[noVal];
-            const item = itemsData.find(i => String(getItemVal(i, [noKey, '通番'])) === String(noVal));
+            const item = itemsData.find(i => formatCleanNumber(getItemVal(i, [noKey, '通番'])) === String(noVal));
 
             if (qty > 0 && item) {
-                const currentStock = parseInt(getItemVal(item, [stockKey, '個数', '在庫数'])) || 0;
+                const currentStock = parseInt(getItemVal(item, [stockKey, '在庫数', '個数'])) || 0;
                 const newStock = Math.max(0, currentStock - qty);
                 item[stockKey] = newStock;
 
@@ -666,12 +689,17 @@
             const tr = document.createElement('tr');
             let rowHtml = '';
 
+            const rawNo = getItemVal(item, [noKey, '通番']);
+            const cleanNo = formatCleanNumber(rawNo);
+
             allHeaders.forEach(h => {
                 if (h === '画像') return;
-                let val = item[h] !== undefined ? item[h] : '';
+                let val = item[h] !== undefined && item[h] !== null ? item[h] : '';
                 
                 if (h === stockKey) {
-                    val = `<input type="number" value="${val}" min="0" onchange="updateStockDirect('${item[noKey]}', parseInt(this.value)||0)" style="width: 65px;">`;
+                    val = `<input type="number" value="${val}" min="0" onchange="updateStockDirect('${cleanNo}', parseInt(this.value)||0)" style="width: 65px;">`;
+                } else {
+                    val = formatCleanNumber(val);
                 }
                 rowHtml += `<td>${val}</td>`;
             });
@@ -688,7 +716,7 @@
         const noKey = getNoKey();
         const stockKey = getStockKey();
 
-        const item = itemsData.find(i => String(getItemVal(i, [noKey, '通番'])) === String(itemNo));
+        const item = itemsData.find(i => formatCleanNumber(getItemVal(i, [noKey, '通番'])) === String(itemNo));
         if (item) item[stockKey] = newStock;
         filterItems(false);
 
