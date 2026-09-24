@@ -26,10 +26,13 @@
         .container { max-width: 1280px; margin: 0 auto; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
         
         .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
-        .sync-status { font-size: 12px; font-weight: bold; color: #28a745; display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 4px; }
-        .sync-status.syncing { color: #d97706; background: #fffbebf5; }
-        .sync-status.completed { color: #0066cc; background: #eef5ff; }
-        .sync-status.error { color: #dc2626; background: #fef2f2; }
+        
+        /* 同期ステータスバッジのスタイル */
+        .sync-status { font-size: 12px; font-weight: bold; padding: 6px 12px; border-radius: 6px; display: flex; align-items: center; gap: 6px; transition: all 0.3s ease; }
+        .sync-status.syncing { color: #856404; background: #fff3cd; border: 1px solid #ffeeba; }
+        .sync-status.success { color: #155724; background: #d4edda; border: 1px solid #c3e6cb; }
+        .sync-status.completed { color: #004085; background: #cce5ff; border: 1px solid #b8daff; }
+        .sync-status.error { color: #721c24; background: #f8d7da; border: 1px solid #f5c6cb; }
 
         .tabs { display: flex; border-bottom: 2px solid var(--border-color); margin-bottom: 15px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
         .tab-btn { padding: 10px 14px; border: none; background: none; font-size: 14px; font-weight: bold; cursor: pointer; border-bottom: 3px solid transparent; color: #666; white-space: nowrap; }
@@ -131,7 +134,7 @@
 <div class="container">
     <div class="header-bar">
         <h1>📦 物品カタログ ＆ 在庫管理</h1>
-        <div class="sync-status" id="syncStatus">🟢 スプレッドシート同期中...</div>
+        <div class="sync-status syncing" id="syncStatus">⏳ 同期準備中...</div>
     </div>
 
     <!-- タブメニュー -->
@@ -287,8 +290,8 @@
 </div>
 
 <script>
-    // 新しい GAS URL を設定
-    const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbwhm3CaHOav5K6ZZRQ5dwn3nBH6JktrZPctuWz1Otuqqvit3wMlnF1bkwzSwZZ4Jug/exec";
+    // 指定された新しい GAS URL を設定
+    const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbxxreKnuEtnyyOCC4Cry3Z1kYHk_c6u6fEy1rcSuoXF7dLFU5eJ6A0M6tpf286GjzA/exec";
     const DEFAULT_ADMIN_PASSWORD = "0924";
     const PAGE_SIZE = 50;
     
@@ -335,9 +338,15 @@
     }
 
     async function fetchDataFromSpreadsheet() {
-        if (!gasApiUrl) return;
+        if (!gasApiUrl) {
+            updateSyncStatus('error', 'URLが未設定です');
+            return;
+        }
         try {
+            updateSyncStatus('syncing', 'データ取得中...');
             const response = await fetch(gasApiUrl);
+            if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+            
             const data = await response.json();
             
             const rawItems = Array.isArray(data) ? data : (data.items || []);
@@ -363,10 +372,10 @@
             renderOrders();
             renderShippedOrders();
             updateTabBadges();
-            updateSyncStatus('success');
+            updateSyncStatus('success', '同期成功');
         } catch (error) {
             console.error("同期エラー:", error);
-            updateSyncStatus('error');
+            updateSyncStatus('error', '同期失敗（接続エラー）');
         }
     }
 
@@ -374,15 +383,16 @@
         if (!gasApiUrl) return;
         try {
             updateSyncStatus('syncing', '送信中...');
-            await fetch(gasApiUrl, {
+            const res = await fetch(gasApiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                 body: JSON.stringify(updatePayload)
             });
-            updateSyncStatus('completed', '同期完了');
+            if (!res.ok) throw new Error('送信エラー');
+            updateSyncStatus('completed', '更新完了');
         } catch (e) {
             console.error("送信エラー:", e);
-            updateSyncStatus('error');
+            updateSyncStatus('error', '送信失敗');
         }
     }
 
@@ -393,16 +403,16 @@
         if (type === 'completed') {
             el.className = 'sync-status completed';
             el.innerHTML = `✅ ${message || '更新完了'}`;
-            resetSyncTimer = setTimeout(() => { updateSyncStatus('success'); }, 3000);
+            resetSyncTimer = setTimeout(() => { updateSyncStatus('success', '同期成功'); }, 3000);
         } else if (type === 'syncing') {
             el.className = 'sync-status syncing';
-            el.innerHTML = `⏳ ${message || '処理中...'}`;
+            el.innerHTML = `⏳ ${message || '同期処理中...'}`;
         } else if (type === 'success') {
-            el.className = 'sync-status';
-            el.innerHTML = '🟢 スプレッドシート同期中';
+            el.className = 'sync-status success';
+            el.innerHTML = '🟢 スプレッドシート同期成功';
         } else {
             el.className = 'sync-status error';
-            el.innerHTML = '⚠️ 同期エラー（URL/アクセス制限）';
+            el.innerHTML = `🔴 ${message || '同期エラー（接続失敗）'}`;
         }
     }
 
