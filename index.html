@@ -16,7 +16,7 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             margin: 0;
             padding: 12px;
-            padding-bottom: 120px; /* 固定バー＆ページネーション用の余白 */
+            padding-bottom: 120px;
             background-color: var(--bg-gray);
             color: #333;
         }
@@ -73,7 +73,6 @@
         .btn-success { background: #28a745; }
         .btn-secondary { background: #6c757d; }
 
-        /* ページネーションスタイル */
         .pagination-container {
             display: flex;
             justify-content: center;
@@ -99,7 +98,6 @@
         }
         .page-info { font-size: 13px; font-weight: bold; color: #004488; }
 
-        /* ボトム固定 注文＆キャンセルボタンバー */
         .bottom-order-bar {
             position: fixed;
             bottom: 0;
@@ -153,7 +151,6 @@
         </div>
 
         <div class="controls">
-            <!-- ユーザーが入力・変更した時のみ true を渡して 1 ページ目にリセット -->
             <input type="text" id="searchInput" placeholder="通番・品名・規格・メーカーで検索..." oninput="filterItems(true)">
             <select id="mfrSelect" onchange="filterItems(true)">
                 <option value="">すべてのメーカー</option>
@@ -177,7 +174,6 @@
             </table>
         </div>
 
-        <!-- カタログ用 ページネーション -->
         <div class="pagination-container">
             <button class="pagination-btn" id="prevPageBtn" onclick="changePage(-1)">◀ 前の50件</button>
             <span class="page-info" id="pageInfo">1 / 1 ページ</span>
@@ -290,10 +286,10 @@
 </div>
 
 <script>
-    // 指定された新しい GAS URL を初期値に設定
-    const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbxmFRZIYZPsi4-z2AWCds-s58GFCc7_fO26t6O0JZK32Jz3x2yutpYmbRGJzxQBbFk/exec";
+    // 指定された新しい GAS URL を設定
+    const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbxh5IB8CevjVBxkEktrSlXj6NDKyMXnbEb-1RX3pwZOBNp1maUFXorroZD7HHAAlYQ/exec";
     const DEFAULT_ADMIN_PASSWORD = "0924";
-    const PAGE_SIZE = 50; // 1ページあたりの表示件数
+    const PAGE_SIZE = 50;
     
     let adminPassword = localStorage.getItem('admin_password') || DEFAULT_ADMIN_PASSWORD;
     let gasApiUrl = localStorage.getItem('gas_api_url') || DEFAULT_GAS_URL;
@@ -305,17 +301,14 @@
     let itemsData = [];
     let filteredItems = [];
     let allHeaders = [];
-    let selectedOrderQtys = {}; // ページ移動時も選択数量を保持するオブジェクト {通番: 数量}
-    let orderHistory = JSON.parse(localStorage.getItem('chrome_order_history')) || [];
-    let shippedOrders = JSON.parse(localStorage.getItem('chrome_shipped_orders')) || [];
+    let selectedOrderQtys = {}; 
+    let orderHistory = [];
+    let shippedOrders = [];
 
     window.onload = function() {
         document.getElementById('gasUrlInput').value = gasApiUrl;
         fetchDataFromSpreadsheet();
         setInterval(fetchDataFromSpreadsheet, 5000);
-        updateTabBadges();
-        renderOrders();
-        renderShippedOrders();
     };
 
     function updateAdminPassword() {
@@ -340,27 +333,47 @@
         fetchDataFromSpreadsheet();
     }
 
-    function saveHistoryToStorage() {
-        localStorage.setItem('chrome_order_history', JSON.stringify(orderHistory));
-        localStorage.setItem('chrome_shipped_orders', JSON.stringify(shippedOrders));
-    }
-
     async function fetchDataFromSpreadsheet() {
         if (!gasApiUrl) return;
         try {
             const response = await fetch(gasApiUrl);
             const data = await response.json();
             
-            if (Array.isArray(data) && data.length > 0) {
-                itemsData = data;
-                allHeaders = Object.keys(data[0]);
+            // 在庫データ取得
+            const items = Array.isArray(data) ? data : (data.items || []);
+            if (items.length > 0) {
+                itemsData = items;
+                allHeaders = Object.keys(items[0]);
                 populateMfrDropdown();
-                filterItems(false); // 自動同期時はページ位置をリセットしない
+                filterItems(false);
                 renderManageTable();
-                updateSyncStatus('success');
             }
+
+            // 注文・出庫データ取得
+            if (data.orders) orderHistory = data.orders;
+            if (data.shipped) shippedOrders = data.shipped;
+
+            renderOrders();
+            renderShippedOrders();
+            updateTabBadges();
+            updateSyncStatus('success');
         } catch (error) {
             console.error("同期エラー:", error);
+            updateSyncStatus('error');
+        }
+    }
+
+    async function syncToGas(updatePayload) {
+        if (!gasApiUrl) return;
+        try {
+            await fetch(gasApiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify(updatePayload)
+            });
+            updateSyncStatus('completed', '同期完了');
+        } catch (e) {
+            console.error("送信エラー:", e);
             updateSyncStatus('error');
         }
     }
@@ -371,7 +384,7 @@
 
         if (type === 'completed') {
             el.className = 'sync-status completed';
-            el.innerHTML = `✅ ${message || 'GAS連携完了（更新済み）'}`;
+            el.innerHTML = `✅ ${message || '更新完了'}`;
             resetSyncTimer = setTimeout(() => { updateSyncStatus('success'); }, 3000);
         } else if (type === 'success') {
             el.className = 'sync-status';
@@ -456,7 +469,6 @@
         });
     }
 
-    // 引数 resetPage（デフォルトは false）を追加して自動同期時にページを保持する
     function filterItems(resetPage = false) {
         const search = document.getElementById('searchInput').value.toLowerCase();
         const selectedMfr = document.getElementById('mfrSelect').value;
@@ -469,16 +481,10 @@
             return matchSearch && matchMfr;
         });
 
-        // 検索・絞り込みの入力変更時（resetPage === true）のみ 1 ページ目に戻す
-        if (resetPage) {
-            currentPage = 1;
-        }
+        if (resetPage) currentPage = 1;
 
-        // データ件数が減った等で現在のページ数が最大ページを超えてしまった場合の安全補正
         const totalPages = Math.ceil(filteredItems.length / PAGE_SIZE) || 1;
-        if (currentPage > totalPages) {
-            currentPage = totalPages;
-        }
+        if (currentPage > totalPages) currentPage = totalPages;
 
         document.getElementById('itemCount').innerText = `全 ${filteredItems.length} 件`;
         renderCatalog();
@@ -490,7 +496,7 @@
         if (currentPage < 1) currentPage = 1;
         if (currentPage > totalPages) currentPage = totalPages;
         renderCatalog();
-        window.scrollTo({ top: 0, behavior: 'smooth' }); // ページ上部にスクロール
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     function handleQtyChange(inputEl) {
@@ -514,7 +520,6 @@
         const stockKey = getStockKey();
         const specKey = getSpecKey();
 
-        // ページネーションの範囲計算
         const totalPages = Math.ceil(filteredItems.length / PAGE_SIZE) || 1;
         const startIndex = (currentPage - 1) * PAGE_SIZE;
         const endIndex = Math.min(startIndex + PAGE_SIZE, filteredItems.length);
@@ -580,19 +585,39 @@
 
         if (!dept || !name) return alert('注文前に「部署名」と「お名前」を入力してください。');
 
-        const orderList = [];
+        const updatedStockItems = [];
         const noKey = getNoKey();
         const nameKey = getNameKey();
         const mfrKey = getMfrKey();
         const specKey = getSpecKey();
         const stockKey = getStockKey();
 
+        const orderList = [];
+
         Object.keys(selectedOrderQtys).forEach(noVal => {
             const qty = selectedOrderQtys[noVal];
             const item = itemsData.find(i => String(getItemVal(i, [noKey, '通番'])) === String(noVal));
 
             if (qty > 0 && item) {
-                orderList.push({ item: item, qty: qty, noVal: noVal });
+                const currentStock = parseInt(getItemVal(item, [stockKey, '在庫数'])) || 0;
+                const newStock = Math.max(0, currentStock - qty);
+                item[stockKey] = newStock;
+
+                updatedStockItems.push({ no: noVal, newStock: newStock });
+
+                orderHistory.push({
+                    id: String(Date.now() + Math.random()),
+                    date: new Date().toLocaleString('ja-JP'),
+                    dept: dept,
+                    name: name,
+                    no: noVal,
+                    itemName: getItemVal(item, [nameKey, '品名']),
+                    mfr: getItemVal(item, [mfrKey, 'メーカー']),
+                    spec: getItemVal(item, [specKey, '規格']),
+                    qty: qty
+                });
+
+                orderList.push(item);
             }
         });
 
@@ -600,42 +625,18 @@
 
         if (!confirm(`合計 ${orderList.length} 件の注文を確定しますか？`)) return;
 
-        for (const order of orderList) {
-            const currentStock = parseInt(getItemVal(order.item, [stockKey, '在庫数'])) || 0;
-            const newStock = Math.max(0, currentStock - order.qty);
-            order.item[stockKey] = newStock;
+        syncToGas({
+            action: 'updateAll',
+            items: updatedStockItems,
+            orders: orderHistory,
+            shipped: shippedOrders
+        });
 
-            orderHistory.push({
-                id: Date.now() + Math.random(),
-                date: new Date().toLocaleString('ja-JP'),
-                dept: dept,
-                name: name,
-                no: order.noVal,
-                itemName: getItemVal(order.item, [nameKey, '品名']),
-                mfr: getItemVal(order.item, [mfrKey, 'メーカー']),
-                spec: getItemVal(order.item, [specKey, '規格']),
-                qty: order.qty
-            });
-
-            try {
-                fetch(gasApiUrl, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'updateStock', no: order.noVal, newStock: newStock })
-                });
-            } catch (e) {
-                console.error(e);
-            }
-        }
-
-        selectedOrderQtys = {}; // 注文完了後に選択内容をリセット
-        saveHistoryToStorage();
+        selectedOrderQtys = {};
         filterItems(false);
         renderManageTable();
         renderOrders();
         updateTabBadges();
-        updateSyncStatus('completed', '注文確定完了（更新完了）');
 
         alert(`【注文完了】\n合計 ${orderList.length} 件の注文を受け付けました。`);
     }
@@ -683,7 +684,7 @@
         tbody.appendChild(fragment);
     }
 
-    async function updateStockDirect(itemNo, newStock) {
+    function updateStockDirect(itemNo, newStock) {
         const noKey = getNoKey();
         const stockKey = getStockKey();
 
@@ -691,45 +692,47 @@
         if (item) item[stockKey] = newStock;
         filterItems(false);
 
-        try {
-            await fetch(gasApiUrl, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'updateStock', no: itemNo, newStock: newStock })
-            });
-            updateSyncStatus('completed', '在庫変更の反映完了');
-        } catch (e) {
-            updateSyncStatus('error');
-            console.error(e);
-        }
+        syncToGas({
+            action: 'updateAll',
+            items: [{ no: itemNo, newStock: newStock }]
+        });
     }
 
     function dispatchOrder(orderId) {
-        const idx = orderHistory.findIndex(o => o.id === orderId);
+        const idx = orderHistory.findIndex(o => String(o.id) === String(orderId));
         if (idx !== -1) {
             const shippedItem = orderHistory.splice(idx, 1)[0];
             shippedItem.shippedDate = new Date().toLocaleString('ja-JP');
             shippedOrders.push(shippedItem);
 
-            saveHistoryToStorage();
             renderOrders();
             renderShippedOrders();
             updateTabBadges();
+
+            syncToGas({
+                action: 'updateAll',
+                orders: orderHistory,
+                shipped: shippedOrders
+            });
         }
     }
 
     function undoDispatch(orderId) {
-        const idx = shippedOrders.findIndex(o => o.id === orderId);
+        const idx = shippedOrders.findIndex(o => String(o.id) === String(orderId));
         if (idx !== -1) {
             const restoredItem = shippedOrders.splice(idx, 1)[0];
             delete restoredItem.shippedDate;
             orderHistory.push(restoredItem);
 
-            saveHistoryToStorage();
             renderOrders();
             renderShippedOrders();
             updateTabBadges();
+
+            syncToGas({
+                action: 'updateAll',
+                orders: orderHistory,
+                shipped: shippedOrders
+            });
         }
     }
 
@@ -746,7 +749,7 @@
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td style="text-align:center;">
-                    <button class="btn btn-success" style="padding:4px 8px; font-size:11px;" onclick="dispatchOrder(${o.id})">出庫完了</button>
+                    <button class="btn btn-success" style="padding:4px 8px; font-size:11px;" onclick="dispatchOrder('${o.id}')">出庫完了</button>
                 </td>
                 <td>${o.date}</td>
                 <td><strong>${o.dept}</strong></td>
@@ -786,7 +789,7 @@
                 <td>${o.spec}</td>
                 <td>${o.qty}</td>
                 <td style="text-align:center;">
-                    <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="undoDispatch(${o.id})">未出庫に戻す</button>
+                    <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="undoDispatch('${o.id}')">未出庫に戻す</button>
                 </td>
             `;
             fragment.appendChild(tr);
