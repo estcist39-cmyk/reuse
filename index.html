@@ -287,7 +287,8 @@
 </div>
 
 <script>
-    const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbys7vUuvTIzJ68HF8KeiogOIStQQ1JAV1ATVwSq8dyix5hxxB5KlNDYw8ZorCCXZ04/exec";
+    // 新しい GAS URL を設定
+    const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbwhm3CaHOav5K6ZZRQ5dwn3nBH6JktrZPctuWz1Otuqqvit3wMlnF1bkwzSwZZ4Jug/exec";
     const DEFAULT_ADMIN_PASSWORD = "0924";
     const PAGE_SIZE = 50;
     
@@ -339,14 +340,12 @@
             const response = await fetch(gasApiUrl);
             const data = await response.json();
             
-            // 在庫データ取得と空行フィルタリング
             const rawItems = Array.isArray(data) ? data : (data.items || []);
             if (rawItems.length > 0) {
                 allHeaders = Object.keys(rawItems[0]);
                 const nameKey = getNameKey();
                 const noKey = getNoKey();
                 
-                // 品名または通番が存在する実有効データのみを抽出
                 itemsData = rawItems.filter(item => {
                     const name = getItemVal(item, [nameKey, '品名']);
                     const no = getItemVal(item, [noKey, '通番']);
@@ -358,7 +357,6 @@
                 renderManageTable();
             }
 
-            // 注文・出庫データ取得
             if (data.orders) orderHistory = data.orders;
             if (data.shipped) shippedOrders = data.shipped;
 
@@ -375,6 +373,7 @@
     async function syncToGas(updatePayload) {
         if (!gasApiUrl) return;
         try {
+            updateSyncStatus('syncing', '送信中...');
             await fetch(gasApiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -395,6 +394,9 @@
             el.className = 'sync-status completed';
             el.innerHTML = `✅ ${message || '更新完了'}`;
             resetSyncTimer = setTimeout(() => { updateSyncStatus('success'); }, 3000);
+        } else if (type === 'syncing') {
+            el.className = 'sync-status syncing';
+            el.innerHTML = `⏳ ${message || '処理中...'}`;
         } else if (type === 'success') {
             el.className = 'sync-status';
             el.innerHTML = '🟢 スプレッドシート同期中';
@@ -467,7 +469,6 @@
         return str;
     }
 
-    // ヘッダー名自動判定関数
     function getMfrKey() { return allHeaders.find(h => h.includes('メーカー')) || 'メーカー'; }
     function getNameKey() { return allHeaders.find(h => h.includes('品名')) || '品名'; }
     function getNoKey() { return allHeaders.find(h => h.includes('通番')) || '通番'; }
